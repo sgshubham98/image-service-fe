@@ -1,0 +1,42 @@
+[
+  {
+    "prompt": "A cinematic mountain sunrise with fog in the valley",
+    "width": 1024,
+    "height": 1024,
+    "num_steps": 4,
+    "seed": 101,
+    "format": "png"
+  },
+  {
+    "prompt": "Minimal product shot of a smartwatch on marble",
+    "width": 1024,
+    "height": 1024,
+    "num_steps": 4,
+    "seed": 202,
+    "format": "png"
+  },
+  {
+    "prompt": "Cyberpunk street scene with neon rain reflections",
+    "width": 1344,
+    "height": 768,
+    "num_steps": 4,
+    "seed": 303,
+    "format": "webp"
+  },
+  {
+    "prompt": "Studio portrait of a golden retriever with soft key light",
+    "width": 768,
+    "height": 1024,
+    "num_steps": 4,
+    "seed": 404,
+    "format": "jpeg"
+  },
+  {
+    "prompt": "Isometric city block illustration with pastel tones",
+    "width": 1024,
+    "height": 1024,
+    "num_steps": 4,
+    "seed": 505,
+    "format": "png"
+  }
+]
