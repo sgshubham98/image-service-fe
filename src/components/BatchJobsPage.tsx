@@ -46,10 +46,10 @@ export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatch
     try {
       await downloadBatchZip(batchId, batchName ?? undefined);
     } catch {
-      // Download failed — silently ignore (user sees no file).
-    } finally {
-      setDownloading(null);
+      // HEAD check failed — no completed images or batch not found.
     }
+    // Clear immediately — the browser handles the actual download in the background.
+    setDownloading(null);
   };
 
   const handleCancel = async (batchId: string) => {

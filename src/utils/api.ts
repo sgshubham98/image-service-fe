@@ -190,22 +190,26 @@ export function cancelBatch(batchId: string) {
   return fetchJson<BatchProgress>(`/batch/${batchId}`, { method: "DELETE" });
 }
 
-export async function downloadBatchZip(batchId: string, batchName?: string) {
-  const response = await fetch(buildUrl(`/batch/${batchId}/download`));
-  if (!response.ok) {
-    let message = `Download failed (${response.status})`;
+export async function downloadBatchZip(batchId: string, _batchName?: string) {
+  const url = buildUrl(`/batch/${batchId}/download`);
+
+  // Quick HEAD check so we can surface errors (404, etc.) without
+  // blocking the UI for the full download.
+  const head = await fetch(url, { method: "HEAD" });
+  if (!head.ok) {
+    let message = `Download failed (${head.status})`;
     try {
-      const errorBody = await response.json();
-      const detail = errorBody?.detail;
-      if (typeof detail === "string") message = detail;
+      // HEAD won't have a body, try GET for error detail
+      const errRes = await fetch(url);
+      const errBody = await errRes.json();
+      if (typeof errBody?.detail === "string") message = errBody.detail;
     } catch { /* not JSON */ }
     throw new Error(message);
   }
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
+
+  // Let the browser handle the streaming download natively —
+  // the backend sets Content-Disposition with the filename.
   const a = document.createElement("a");
   a.href = url;
-  a.download = batchName ? `${batchName}.zip` : `batch-${batchId.slice(0, 8)}.zip`;
   a.click();
-  URL.revokeObjectURL(url);
 }
