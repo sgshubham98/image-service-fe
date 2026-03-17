@@ -11,6 +11,7 @@ interface Props {
   selectedBatchId: string | null;
   onSelectBatch: (batchId: string) => void;
   onBatchCancelled: (batchId: string) => void;
+  onClearTrackedBatches: () => void;
   theme: "dark" | "light";
 }
 
@@ -32,7 +33,7 @@ function renderEvent(event: BatchEvent) {
   return `${new Date(event.at).toLocaleTimeString()} · ${event.message}`;
 }
 
-export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatchCancelled, theme }: Props) {
+export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatchCancelled, onClearTrackedBatches, theme }: Props) {
   const activeBatches = useMemo(
     () => batches.filter((batch) => batch.progress.status === "processing" || batch.progress.status === "pending"),
     [batches]
@@ -45,6 +46,7 @@ export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatch
   const [downloading, setDownloading] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [updatesBatchId, setUpdatesBatchId] = useState<string | null>(null);
 
@@ -105,7 +107,20 @@ export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatch
   return (
     <div className={`space-y-5 ${shell}`}>
       <section className={card}>
-        <h2 className="text-base font-semibold mb-3">Queued Jobs</h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">Queued Jobs</h2>
+          <button
+            onClick={() => setConfirmClearAll(true)}
+            disabled={batches.length === 0}
+            className={`text-xs font-medium rounded-lg border px-3 py-1.5 transition-all cursor-pointer ${
+              theme === "light"
+                ? "border-[#cfc7ff] text-zinc-700 hover:border-rose-400 hover:text-rose-700"
+                : "border-zinc-700/60 text-zinc-300 hover:border-rose-500/60 hover:text-rose-300"
+            } disabled:opacity-45 disabled:cursor-not-allowed`}
+          >
+            Clear all tracked
+          </button>
+        </div>
         {activeBatches.length === 0 ? (
           <p className="text-sm opacity-70">No running or pending batch jobs right now.</p>
         ) : (
@@ -394,6 +409,21 @@ export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatch
           if (confirmCancelId) handleCancel(confirmCancelId);
         }}
         onCancel={() => setConfirmCancelId(null)}
+        theme={theme}
+        variant="danger"
+      />
+
+      <ConfirmModal
+        open={confirmClearAll}
+        title="Clear Batch Jobs"
+        message="Clear all tracked batch jobs from the frontend view? Running server jobs will continue unless cancelled."
+        confirmLabel="Clear all"
+        onConfirm={() => {
+          onClearTrackedBatches();
+          setConfirmClearAll(false);
+          setUpdatesBatchId(null);
+        }}
+        onCancel={() => setConfirmClearAll(false)}
         theme={theme}
         variant="danger"
       />

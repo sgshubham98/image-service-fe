@@ -609,6 +609,15 @@ export function App() {
     });
   }, []);
 
+  const handleClearTrackedBatches = useCallback(() => {
+    for (const stop of batchStreamStops.current.values()) {
+      stop();
+    }
+    batchStreamStops.current.clear();
+    setTrackedBatches([]);
+    setSelectedBatchId(null);
+  }, []);
+
   const handleUseScreenResolution = useCallback(() => {
     const resolution = getScreenResolution();
     setWidth(resolution.width);
@@ -841,6 +850,7 @@ export function App() {
                 selectedBatchId={selectedBatchId}
                 onSelectBatch={setSelectedBatchId}
                 onBatchCancelled={handleBatchCancelled}
+                onClearTrackedBatches={handleClearTrackedBatches}
                 theme={theme}
               />
             </>

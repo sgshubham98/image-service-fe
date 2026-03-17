@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../utils/cn";
 
+const TOAST_AUTO_DISMISS_MS = 2000;
+
 export interface ToastData {
   id: string;
   message: string;
@@ -34,9 +36,9 @@ function ToastItem({
     const timer = setTimeout(() => {
       setVisible(false);
       setTimeout(onDismiss, 200);
-    }, toast.duration ?? 5000);
+    }, TOAST_AUTO_DISMISS_MS);
     return () => clearTimeout(timer);
-  }, [toast.duration, onDismiss]);
+  }, [onDismiss]);
 
   const iconColor =
     toast.variant === "success"
