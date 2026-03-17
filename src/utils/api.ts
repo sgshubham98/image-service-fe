@@ -186,6 +186,10 @@ export function getJob(jobId: string) {
   return fetchJson<JobDetail>(`/jobs/${jobId}`);
 }
 
+export function cancelJob(jobId: string) {
+  return fetchJson<JobDetail>(`/jobs/${jobId}`, { method: "DELETE" });
+}
+
 export function cancelBatch(batchId: string) {
   return fetchJson<BatchProgress>(`/batch/${batchId}`, { method: "DELETE" });
 }
@@ -193,23 +197,27 @@ export function cancelBatch(batchId: string) {
 export async function downloadBatchZip(batchId: string, _batchName?: string) {
   const url = buildUrl(`/batch/${batchId}/download`);
 
-  // Quick HEAD check so we can surface errors (404, etc.) without
-  // blocking the UI for the full download.
-  const head = await fetch(url, { method: "HEAD" });
-  if (!head.ok) {
-    let message = `Download failed (${head.status})`;
+  const response = await fetch(url, { method: "GET" });
+  if (!response.ok) {
+    let message = `Download failed (${response.status})`;
     try {
-      // HEAD won't have a body, try GET for error detail
-      const errRes = await fetch(url);
-      const errBody = await errRes.json();
+      const errBody = await response.json();
       if (typeof errBody?.detail === "string") message = errBody.detail;
-    } catch { /* not JSON */ }
+    } catch {
+      // Keep fallback message when body is not JSON.
+    }
     throw new Error(message);
   }
 
-  // Let the browser handle the streaming download natively —
-  // the backend sets Content-Disposition with the filename.
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("content-disposition") ?? "";
+  const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] ?? `batch-${batchId}.zip`;
+
+  const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
+  a.href = blobUrl;
+  a.download = filename;
   a.click();
+  URL.revokeObjectURL(blobUrl);
 }

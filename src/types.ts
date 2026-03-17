@@ -20,6 +20,7 @@ export interface HistoryEntry {
   isGenerating?: boolean;
   error?: string | null;
   mode?: "realtime" | "batch";
+  jobIds?: string[];
   batchId?: string | null;
   batchName?: string | null;
 }

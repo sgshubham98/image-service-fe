@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BatchControlsPanel } from "./components/BatchControlsPanel";
 import { BatchJobsPage } from "./components/BatchJobsPage";
+import { ConfirmModal } from "./components/ConfirmModal";
 import { ContactPage } from "./components/ContactPage";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { InfoIcon } from "./components/InfoIcon";
@@ -10,6 +11,7 @@ import { ToastContainer, ToastData } from "./components/Toast";
 import { BatchProgress, GenerationParams, HistoryEntry, TrackedBatch } from "./types";
 import {
   absoluteAssetUrl,
+  cancelJob,
   createBatchJob,
   createGenerateJob,
   getBatchStatus,
@@ -26,6 +28,7 @@ const HISTORY_KEY = "imagify-history";
 const BATCHES_KEY = "imagify-batches";
 const LIGHT_BG = "#EAE8FF";
 const LIGHT_BTN = "#2D3142";
+const MAX_CUSTOM_IMAGES = 10000;
 
 function loadHistory(): HistoryEntry[] {
   try {
@@ -117,6 +120,7 @@ export function App() {
   const [trackedBatches, setTrackedBatches] = useState<TrackedBatch[]>(() => loadBatches());
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
+  const [pendingBatchConfirm, setPendingBatchConfirm] = useState<GenerationParams | null>(null);
 
   const addToast = useCallback((toast: Omit<ToastData, "id">) => {
     setToasts((prev) => [...prev, { ...toast, id: `toast-${Date.now()}` }]);
@@ -131,66 +135,12 @@ export function App() {
   const startWidthRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const batchStreamStops = useRef<Map<string, () => void>>(new Map());
+  const realtimeStreamStops = useRef<Map<string, () => void>>(new Map());
 
   const shellClass = theme === "light" ? "h-screen text-zinc-900" : "h-screen bg-zinc-950 text-zinc-100";
   const headerClass = theme === "light" ? "border-[#cfc7ff] bg-white/85" : "border-zinc-800/60 bg-zinc-950/95";
   const dividerClass = theme === "light" ? "border-[#d7d0ff]" : "border-zinc-800/60";
   const asideClass = theme === "light" ? "border-[#cfc7ff] bg-white/70" : "border-zinc-800/60";
-
-  const addMockBatch = useCallback(() => {
-    const now = new Date();
-    const batchId = `mock-${now.getTime()}`;
-    const progress: BatchProgress = {
-      batch_id: batchId,
-      name: `Mock Batch ${now.toLocaleTimeString()}`,
-      total: 12,
-      completed: 3,
-      failed: 0,
-      cancelled: 0,
-      pending: 9,
-      status: "processing",
-      estimated_remaining_seconds: 24,
-      created_at: now.toISOString(),
-      completed_at: null,
-    };
-
-    const queueJobs = Array.from({ length: 6 }).map((_, index) => ({
-      id: `${batchId}-job-${index + 1}`,
-      prompt: `Mock queued prompt #${index + 1}`,
-      negative_prompt: null,
-      width: 1024,
-      height: 1024,
-      num_steps: 4,
-      guidance_scale: 0,
-      seed: 100 + index,
-      status: index < 2 ? "processing" : "pending",
-      priority: 5,
-      format: "png",
-      file_path: null,
-      image_url: null,
-      error_message: null,
-      batch_id: batchId,
-      created_at: now.toISOString(),
-      started_at: index < 2 ? now.toISOString() : null,
-      completed_at: null,
-    }));
-
-    setTrackedBatches((prev) =>
-      sortBatches([
-        {
-          progress,
-          queueJobs,
-          events: [
-            { at: now.toISOString(), type: "progress", message: "Mock batch initialized" },
-            { at: now.toISOString(), type: "progress", message: "Worker started 2 jobs" },
-          ],
-        },
-        ...prev,
-      ])
-    );
-    setSelectedBatchId(batchId);
-    setActiveTab("batch");
-  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(THEME_KEY, theme);
@@ -246,12 +196,35 @@ export function App() {
     batchStreamStops.current.set(batchId, stop);
   }, []);
 
+  const refreshBatchQueueJobs = useCallback(async (batchId: string) => {
+    try {
+      const [queueRes, procRes] = await Promise.all([
+        listJobs({ batch_id: batchId, status: "pending", page_size: 50 }),
+        listJobs({ batch_id: batchId, status: "processing", page_size: 50 }),
+      ]);
+
+      setTrackedBatches((prev) =>
+        prev.map((batch) =>
+          batch.progress.batch_id === batchId
+            ? { ...batch, queueJobs: [...procRes.jobs, ...queueRes.jobs] }
+            : batch
+        )
+      );
+    } catch {
+      // Silent refresh failure. Periodic polling and SSE still update the batch.
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       for (const stop of batchStreamStops.current.values()) {
         stop();
       }
       batchStreamStops.current.clear();
+      for (const stop of realtimeStreamStops.current.values()) {
+        stop();
+      }
+      realtimeStreamStops.current.clear();
     };
   }, []);
 
@@ -262,6 +235,7 @@ export function App() {
     );
     for (const batch of activeBatches) {
       attachBatchStream(batch.progress.batch_id);
+      void refreshBatchQueueJobs(batch.progress.batch_id);
     }
     // Also refresh status for all restored batches from the server
     for (const batch of trackedBatches) {
@@ -282,31 +256,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!selectedBatchId) return;
+    void refreshBatchQueueJobs(selectedBatchId);
+  }, [selectedBatchId, refreshBatchQueueJobs]);
+
+  useEffect(() => {
     const TERMINAL = new Set(["completed", "failed", "cancelled"]);
     const interval = window.setInterval(async () => {
       const active = trackedBatches.filter((b) => !TERMINAL.has(b.progress.status));
       if (active.length === 0) return;
 
       for (const { progress: { batch_id: batchId } } of active) {
-        try {
-          const queueRes = await listJobs({ batch_id: batchId, status: "pending", page_size: 50 });
-          const procRes = await listJobs({ batch_id: batchId, status: "processing", page_size: 20 });
-
-          setTrackedBatches((prev) =>
-            prev.map((batch) =>
-              batch.progress.batch_id === batchId
-                ? { ...batch, queueJobs: [...procRes.jobs, ...queueRes.jobs] }
-                : batch
-            )
-          );
-        } catch {
-          // Silent poll failure. SSE still updates primary progress.
-        }
+        void refreshBatchQueueJobs(batchId);
       }
     }, 6000);
 
     return () => window.clearInterval(interval);
-  }, [trackedBatches]);
+  }, [refreshBatchQueueJobs, trackedBatches]);
 
   const registerBatch = useCallback(
     (progress: BatchProgress, initialMessage: string) => {
@@ -326,33 +292,84 @@ export function App() {
       });
       setSelectedBatchId(progress.batch_id);
       attachBatchStream(progress.batch_id);
+      void refreshBatchQueueJobs(progress.batch_id);
     },
-    [attachBatchStream]
+    [attachBatchStream, refreshBatchQueueJobs]
   );
 
-  const createManualBatch = useCallback(
-    async (input: { name: string; prompt: string; count: number; width: number; height: number; seed: string }) => {
-      const parsedSeed = input.seed.trim() !== "" ? parseInt(input.seed, 10) : null;
-      const prompts = Array.from({ length: input.count }).map((_, index) => ({
-        prompt: input.prompt,
-        width: input.width,
-        height: input.height,
+  const submitAutoBatch = useCallback(
+    async (params: GenerationParams) => {
+      const prompts = Array.from({ length: params.numImages }).map((_, index) => ({
+        prompt: params.prompt,
+        width: params.width,
+        height: params.height,
         num_images: 1,
-        seed: parsedSeed !== null ? parsedSeed + index : null,
+        seed: params.seed !== null ? params.seed + index : null,
       }));
 
-      const progress = await createBatchJob(input.name || `Batch ${new Date().toLocaleString()}`, prompts);
-      registerBatch(progress, `Manual batch submitted (${input.count} prompts)`);
-      setActiveTab("batch");
+      const batchName = `Auto batch · ${params.prompt.slice(0, 26)}`;
+      const progress = await createBatchJob(batchName, prompts);
+      registerBatch(progress, `Auto-routed from generate (${params.numImages} images)`);
+
+      const batchEntry: HistoryEntry = {
+        id: `${Date.now()}`,
+        params,
+        images: [],
+        timestamp: new Date(),
+        isGenerating: false,
+        error: null,
+        mode: "batch",
+        batchId: progress.batch_id,
+        batchName,
+      };
+      setHistory((prev) => [batchEntry, ...prev]);
+      setActiveTab("gallery");
+
+      addToast({
+        message: "Request transferred to Batch",
+        detail: `${params.numImages} images will be processed as "${batchName}". Track progress in the Batch tab.`,
+        variant: "info",
+        duration: 6000,
+        action: {
+          label: "View Batch",
+          onClick: () => {
+            setSelectedBatchId(progress.batch_id);
+            setActiveTab("batch");
+          },
+        },
+      });
     },
-    [registerBatch]
+    [addToast, registerBatch]
   );
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
     setGlobalError(null);
-    const parsedSeed = seed.trim() !== "" ? parseInt(seed, 10) : null;
+    if (width % 8 !== 0 || height % 8 !== 0) {
+      const message = "Width and height must be divisible by 8.";
+      setGlobalError(message);
+      addToast({
+        message: "Invalid dimensions",
+        detail: message,
+        variant: "warning",
+      });
+      return;
+    }
+
+    if (numImages > MAX_CUSTOM_IMAGES) {
+      const message = `Image count cannot exceed ${MAX_CUSTOM_IMAGES}.`;
+      setGlobalError(message);
+      addToast({
+        message: "Image count too high",
+        detail: message,
+        variant: "warning",
+      });
+      return;
+    }
+
+    const parsedSeedRaw = seed.trim() !== "" ? parseInt(seed, 10) : null;
+    const parsedSeed = Number.isNaN(parsedSeedRaw) ? null : parsedSeedRaw;
     const params: GenerationParams = {
       prompt: prompt.trim(),
       seed: parsedSeed,
@@ -362,50 +379,7 @@ export function App() {
     };
 
     if (numImages > 4) {
-      try {
-        const prompts = Array.from({ length: numImages }).map((_, index) => ({
-          prompt: params.prompt,
-          width: params.width,
-          height: params.height,
-          num_images: 1,
-          seed: parsedSeed !== null ? parsedSeed + index : null,
-        }));
-
-        const batchName = `Auto batch · ${params.prompt.slice(0, 26)}`;
-        const progress = await createBatchJob(batchName, prompts);
-        registerBatch(progress, `Auto-routed from generate (${numImages} images)`);
-
-        // Add a gallery entry so user sees the job was routed to batch
-        const batchEntry: HistoryEntry = {
-          id: `${Date.now()}`,
-          params,
-          images: [],
-          timestamp: new Date(),
-          isGenerating: false,
-          error: null,
-          mode: "batch",
-          batchId: progress.batch_id,
-          batchName: batchName,
-        };
-        setHistory((prev) => [batchEntry, ...prev]);
-        setActiveTab("gallery");
-
-        addToast({
-          message: "Request transferred to Batch",
-          detail: `${numImages} images will be processed as "${batchName}". Track progress in the Batch tab.`,
-          variant: "info",
-          duration: 6000,
-          action: {
-            label: "View Batch",
-            onClick: () => {
-              setSelectedBatchId(progress.batch_id);
-              setActiveTab("batch");
-            },
-          },
-        });
-      } catch (error) {
-        setGlobalError(error instanceof Error ? error.message : "Failed to submit batch request.");
-      }
+      setPendingBatchConfirm(params);
       return;
     }
 
@@ -434,6 +408,10 @@ export function App() {
       });
 
       const order = response.job_ids;
+      setHistory((prev) =>
+        prev.map((entry) => (entry.id === entryId ? { ...entry, jobIds: order } : entry))
+      );
+      setPrompt("");
 
       // Re-enable the generate button now that the job is submitted.
       setIsGenerating(false);
@@ -480,6 +458,7 @@ export function App() {
                 : entry
             )
           );
+          realtimeStreamStops.current.delete(entryId);
           stop();
         },
         onError: (error) => {
@@ -494,9 +473,11 @@ export function App() {
                 : entry
             )
           );
+          realtimeStreamStops.current.delete(entryId);
           stop();
         },
       });
+      realtimeStreamStops.current.set(entryId, stop);
     } catch (error) {
       setHistory((prev) =>
         prev.map((entry) =>
@@ -512,7 +493,7 @@ export function App() {
       setGlobalError(error instanceof Error ? error.message : "Generation failed");
       setIsGenerating(false);
     }
-  }, [prompt, seed, width, height, numImages, isGenerating, registerBatch]);
+  }, [prompt, seed, width, height, numImages, isGenerating, addToast]);
 
   const handleToggleSelect = useCallback((entryId: string, imageId: string) => {
     setHistory((prev) =>
@@ -561,12 +542,54 @@ export function App() {
   }, []);
 
   const handleClearHistory = useCallback(() => {
+    for (const stop of realtimeStreamStops.current.values()) {
+      stop();
+    }
+    realtimeStreamStops.current.clear();
     setHistory([]);
   }, []);
 
   const handleRemoveEntry = useCallback((entryId: string) => {
+    const stop = realtimeStreamStops.current.get(entryId);
+    if (stop) {
+      stop();
+      realtimeStreamStops.current.delete(entryId);
+    }
     setHistory((prev) => prev.filter((entry) => entry.id !== entryId));
   }, []);
+
+  const handleCancelGeneration = useCallback(async (entryId: string) => {
+    const entry = history.find((item) => item.id === entryId);
+    if (!entry || !entry.jobIds || entry.jobIds.length === 0) return;
+
+    const stop = realtimeStreamStops.current.get(entryId);
+    if (stop) {
+      stop();
+      realtimeStreamStops.current.delete(entryId);
+    }
+
+    await Promise.allSettled(entry.jobIds.map((jobId) => cancelJob(jobId)));
+
+    setHistory((prev) =>
+      prev.map((item) =>
+        item.id === entryId
+          ? { ...item, isGenerating: false, error: "Cancelled by user" }
+          : item
+      )
+    );
+  }, [history]);
+
+  const handleConfirmBatchRouting = useCallback(async () => {
+    if (!pendingBatchConfirm) return;
+    try {
+      await submitAutoBatch(pendingBatchConfirm);
+      setPrompt("");
+      setPendingBatchConfirm(null);
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : "Failed to submit batch request.");
+      setPendingBatchConfirm(null);
+    }
+  }, [pendingBatchConfirm, submitAutoBatch]);
 
   const handleBatchCancelled = useCallback((batchId: string) => {
     // Stop the SSE stream for this batch
@@ -710,7 +733,7 @@ export function App() {
           className={`theme-animate hidden sm:flex flex-col gap-6 border-r p-5 pt-20 pb-16 overflow-y-auto scrollbar-thin scrollbar-track-transparent ${asideClass}`}
           style={{ width: `${leftPanelWidth}px` }}
         >
-          <div className="space-y-1">
+          <div className={`space-y-3 rounded-2xl p-3 ${activeTab === "batch" ? (theme === "light" ? "border border-[#d7d0ff] bg-[#f7f5ff]" : "border border-zinc-800/70 bg-zinc-900/50") : ""}`}>
             <label className="flex items-center gap-1.5 text-sm font-medium uppercase tracking-widest mb-2 opacity-70">
               {activeTab === "batch" ? "Batch Setup" : "Prompt"}
               <InfoIcon
@@ -724,11 +747,6 @@ export function App() {
                   registerBatch(progress, "File batch submitted");
                   setActiveTab("batch");
                 }}
-                onCreateManualBatch={createManualBatch}
-                onCreateMockBatch={addMockBatch}
-                width={width}
-                height={height}
-                seed={seed}
                 theme={theme}
               />
             ) : (
@@ -754,7 +772,7 @@ export function App() {
               onSeedChange={setSeed}
               onWidthChange={setWidth}
               onHeightChange={setHeight}
-              onNumImagesChange={setNumImages}
+              onNumImagesChange={(value) => setNumImages(Math.max(1, Math.min(MAX_CUSTOM_IMAGES, value)))}
               onUseScreenResolution={handleUseScreenResolution}
             />
           )}
@@ -796,6 +814,7 @@ export function App() {
               onDownloadSelected={handleDownloadSelected}
               onDownloadAll={handleDownloadAll}
               onReusePrompt={handleReusePrompt}
+              onCancelGeneration={handleCancelGeneration}
               onRemoveEntry={handleRemoveEntry}
               onClearHistory={handleClearHistory}
               onViewBatch={(batchId) => {
@@ -814,11 +833,6 @@ export function App() {
                     registerBatch(progress, "File batch submitted");
                     setActiveTab("batch");
                   }}
-                  onCreateManualBatch={createManualBatch}
-                  onCreateMockBatch={addMockBatch}
-                  width={width}
-                  height={height}
-                  seed={seed}
                   theme={theme}
                 />
               </div>
@@ -839,6 +853,17 @@ export function App() {
       </footer>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} theme={theme} />
+
+      <ConfirmModal
+        open={pendingBatchConfirm !== null}
+        title="Move Request To Batch"
+        message={`You requested ${pendingBatchConfirm?.numImages ?? 0} images. This can take longer, so it will run in Batch mode. Continue?`}
+        confirmLabel="Continue"
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmBatchRouting}
+        onCancel={() => setPendingBatchConfirm(null)}
+        theme={theme}
+      />
 
       {showContact && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur">

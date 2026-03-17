@@ -25,6 +25,7 @@ const NUM_OPTIONS = [1, 2, 3, 4];
 const DIMENSION_STEP = 64;
 const MIN_DIMENSION = 256;
 const MAX_DIMENSION = 2048;
+const MAX_CUSTOM_IMAGES = 10000;
 
 function normalizeDimension(value: number) {
   const rounded = Math.round(value / DIMENSION_STEP) * DIMENSION_STEP;
@@ -58,6 +59,7 @@ export function ParameterPanel({
   const activePreset = DIMENSION_PRESETS.find((p) => p.w === width && p.h === height);
   const screenResolution = getScreenResolution();
   const isScreenPresetActive = width === screenResolution.width && height === screenResolution.height;
+  const hasInvalidDimensions = width % 8 !== 0 || height % 8 !== 0;
 
   return (
     <div className="space-y-5">
@@ -149,6 +151,9 @@ export function ParameterPanel({
         >
           Use screen resolution ({screenResolution.width}x{screenResolution.height})
         </button>
+        {hasInvalidDimensions && (
+          <p className="mt-2 text-xs text-rose-500">Width and height must be divisible by 8.</p>
+        )}
       </div>
 
       {/* Number of Images */}
@@ -181,10 +186,10 @@ export function ParameterPanel({
               type="number"
               value={numImages}
               min={1}
-              max={50000}
+              max={MAX_CUSTOM_IMAGES}
               onChange={(e) => onNumImagesChange(Number(e.target.value) || 1)}
               className={cn("w-full bg-transparent text-sm outline-none", isLight ? "text-zinc-900" : "text-zinc-200")}
-              placeholder="1-50000"
+              placeholder="1-10000"
             />
           </div>
         </div>

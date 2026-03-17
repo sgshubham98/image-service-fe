@@ -9,6 +9,7 @@ interface Props {
   onDownloadSelected: (entryId: string) => void;
   onDownloadAll: (entryId: string) => void;
   onReusePrompt: (entry: HistoryEntry) => void;
+  onCancelGeneration: (entryId: string) => void;
   onRemoveEntry: (entryId: string) => void;
   onClearHistory: () => void;
   onViewBatch: (batchId: string) => void;
@@ -23,9 +24,9 @@ function timeAgo(date: Date): string {
   return date.toLocaleDateString();
 }
 
-export function HistoryPanel({ history, onToggleSelect, onDownloadSelected, onDownloadAll, onReusePrompt, onRemoveEntry, onClearHistory, onViewBatch, theme }: Props) {
+export function HistoryPanel({ history, onToggleSelect, onDownloadSelected, onDownloadAll, onReusePrompt, onCancelGeneration, onRemoveEntry, onClearHistory, onViewBatch, theme }: Props) {
   const isLight = theme === "light";
-  const [confirmAction, setConfirmAction] = useState<{ type: "clear" | "remove"; entryId?: string } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: "clear" | "remove" | "cancel"; entryId?: string } | null>(null);
   if (history.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-3">
@@ -73,15 +74,25 @@ export function HistoryPanel({ history, onToggleSelect, onDownloadSelected, onDo
             >
               Reuse
             </button>
-            <button
-              onClick={() => setConfirmAction({ type: "remove", entryId: entry.id })}
-              title="Remove this generation"
-              className={`shrink-0 text-xs border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${isLight ? "text-zinc-600 hover:text-rose-600 border-[#cfc7ff] hover:border-rose-400" : "text-zinc-500 hover:text-red-400 border-zinc-700/60 hover:border-red-500/50"}`}
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            {entry.isGenerating ? (
+              <button
+                onClick={() => setConfirmAction({ type: "cancel", entryId: entry.id })}
+                title="Cancel this generation"
+                className={`shrink-0 text-xs border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${isLight ? "text-amber-700 hover:text-amber-800 border-amber-300 hover:border-amber-400" : "text-amber-300 hover:text-amber-200 border-amber-500/50 hover:border-amber-400/70"}`}
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                onClick={() => setConfirmAction({ type: "remove", entryId: entry.id })}
+                title="Remove this generation"
+                className={`shrink-0 text-xs border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${isLight ? "text-zinc-600 hover:text-rose-600 border-[#cfc7ff] hover:border-rose-400" : "text-zinc-500 hover:text-red-400 border-zinc-700/60 hover:border-red-500/50"}`}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {/* Batch routed notice */}
@@ -161,15 +172,30 @@ export function HistoryPanel({ history, onToggleSelect, onDownloadSelected, onDo
 
       <ConfirmModal
         open={confirmAction !== null}
-        title={confirmAction?.type === "clear" ? "Clear History" : "Remove Entry"}
+        title={
+          confirmAction?.type === "clear"
+            ? "Clear History"
+            : confirmAction?.type === "cancel"
+              ? "Cancel Generation"
+              : "Remove Entry"
+        }
         message={
           confirmAction?.type === "clear"
             ? "Clear all generation history? This cannot be undone."
-            : "Remove this generation from history?"
+            : confirmAction?.type === "cancel"
+              ? "Cancel this in-progress generation? Any completed images will remain."
+              : "Remove this generation from history?"
         }
-        confirmLabel={confirmAction?.type === "clear" ? "Clear all" : "Remove"}
+        confirmLabel={
+          confirmAction?.type === "clear"
+            ? "Clear all"
+            : confirmAction?.type === "cancel"
+              ? "Cancel generation"
+              : "Remove"
+        }
         onConfirm={() => {
           if (confirmAction?.type === "clear") onClearHistory();
+          else if (confirmAction?.type === "cancel" && confirmAction.entryId) onCancelGeneration(confirmAction.entryId);
           else if (confirmAction?.type === "remove" && confirmAction.entryId) onRemoveEntry(confirmAction.entryId);
           setConfirmAction(null);
         }}
