@@ -451,9 +451,19 @@ export function App() {
           );
         },
         onDone: (payload) => {
-          const failed = payload.jobs.filter((job) => job.status === "failed").length;
+          const failedJobs = payload.jobs.filter((job) => job.status === "failed");
           const cancelled = payload.jobs.filter((job) => job.status === "cancelled").length;
-          const issue = failed > 0 || cancelled > 0 ? `${failed} failed, ${cancelled} cancelled` : null;
+
+          let issue: string | null = null;
+          if (failedJobs.length > 0 || cancelled > 0) {
+            const errorMessage = failedJobs.map((job) => job.error_message).find((msg) => !!msg);
+            issue = errorMessage ?? `${failedJobs.length} failed, ${cancelled} cancelled`;
+            addToast({
+              message: "Generation failed",
+              detail: issue,
+              variant: "warning",
+            });
+          }
 
           setHistory((prev) =>
             prev.map((entry) =>
