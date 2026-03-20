@@ -33,6 +33,13 @@ function renderEvent(event: BatchEvent) {
   return `${new Date(event.at).toLocaleTimeString()} · ${event.message}`;
 }
 
+function moderationSummary(batch: TrackedBatch): string {
+  const promptUnsafe = batch.progress.unsafe;
+  const outputUnsafe = batch.progress.output_unsafe;
+  if (promptUnsafe === 0 && outputUnsafe === 0) return "No moderation blocks";
+  return `Prompt unsafe: ${promptUnsafe} · Output unsafe: ${outputUnsafe}`;
+}
+
 export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatchCancelled, onClearTrackedBatches, theme }: Props) {
   const activeBatches = useMemo(
     () => batches.filter((batch) => batch.progress.status === "processing" || batch.progress.status === "pending"),
@@ -330,6 +337,18 @@ export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatch
             </table>
             </div>
 
+            <div className={`rounded-xl border p-3 text-sm ${theme === "light" ? "border-[#cfc7ff] bg-[#f8f6ff]" : "border-zinc-800/60 bg-zinc-900/45"}`}>
+              <p className="font-medium">Moderation Summary</p>
+              <div className="mt-2 space-y-1">
+                {paginatedBatches.map((batch) => (
+                  <p key={`${batch.progress.batch_id}-moderation`} className="opacity-85">
+                    <span className="font-mono text-xs mr-2">{batch.progress.batch_id.slice(0, 8)}</span>
+                    {moderationSummary(batch)}
+                  </p>
+                ))}
+              </div>
+            </div>
+
             <div className="flex items-center justify-between gap-3 text-sm">
               <p className="opacity-70">Page {currentPage} of {totalPages}</p>
               <div className="flex items-center gap-2">
@@ -384,17 +403,48 @@ export function BatchJobsPage({ batches, selectedBatchId, onSelectBatch, onBatch
             </div>
 
             <div className="p-5 h-[calc(100%-73px)] overflow-auto">
-              {updatesBatch?.events.length ? (
-                <ul className="space-y-1 text-sm">
-                  {updatesBatch.events.slice(0, 200).map((event, index) => (
-                    <li key={`${event.at}-${index}`} className="font-mono opacity-90">
-                      {renderEvent(event)}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm opacity-70">No events recorded yet.</p>
-              )}
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Events</h3>
+                  {updatesBatch?.events.length ? (
+                    <ul className="space-y-1 text-sm">
+                      {updatesBatch.events.slice(0, 200).map((event, index) => (
+                        <li key={`${event.at}-${index}`} className="font-mono opacity-90">
+                          {renderEvent(event)}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm opacity-70">No events recorded yet.</p>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Failed Jobs</h3>
+                  {updatesBatch && updatesBatch.queueJobs.filter((job) => job.status === "failed").length > 0 ? (
+                    <ul className="space-y-2">
+                      {updatesBatch.queueJobs
+                        .filter((job) => job.status === "failed")
+                        .slice(0, 50)
+                        .map((job) => (
+                          <li
+                            key={job.id}
+                            className={`rounded-lg border p-2 text-xs ${theme === "light" ? "border-[#dcd2ff] bg-white" : "border-zinc-800 bg-zinc-900/70"}`}
+                          >
+                            <p className="font-mono opacity-80">{job.id.slice(0, 12)}</p>
+                            <p className="mt-1 opacity-90">{job.error_message || "Failed"}</p>
+                            <p className="mt-1 opacity-70">
+                              Retry attempts used: {job.regen_attempts_used ?? 0}
+                              {job.image_moderation_flagged ? " · Output moderation blocked" : ""}
+                            </p>
+                          </li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm opacity-70">No failed jobs in current queue snapshot.</p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -46,6 +46,10 @@ export interface JobDetail {
   file_path: string | null;
   image_url: string | null;
   error_message: string | null;
+  image_moderation_flagged: boolean;
+  image_moderation_reason: string | null;
+  image_moderation_score: number | null;
+  regen_attempts_used: number;
   batch_id: string | null;
   created_at: string;
   started_at: string | null;
@@ -66,6 +70,7 @@ export interface BatchProgress {
   completed: number;
   failed: number;
   unsafe: number;
+  output_unsafe: number;
   cancelled: number;
   pending: number;
   status: string;

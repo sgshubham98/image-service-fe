@@ -172,6 +172,7 @@ export function App() {
         setTrackedBatches((prev) => {
           const previous = prev.find((b) => b.progress.batch_id === batchId);
           const prevUnsafe = previous?.progress.unsafe ?? 0;
+          const prevOutputUnsafe = previous?.progress.output_unsafe ?? 0;
           const base = prev.some((b) => b.progress.batch_id === batchId)
             ? prev.map((batch) =>
                 batch.progress.batch_id === batchId ? { ...batch, progress } : batch
@@ -182,6 +183,11 @@ export function App() {
             const delta = progress.unsafe - prevUnsafe;
             const noun = delta === 1 ? "prompt" : "prompts";
             updated = appendEvent(updated, batchId, `${delta} ${noun} flagged unsafe`, "error");
+          }
+          if (progress.output_unsafe > prevOutputUnsafe) {
+            const delta = progress.output_unsafe - prevOutputUnsafe;
+            const noun = delta === 1 ? "image" : "images";
+            updated = appendEvent(updated, batchId, `${delta} ${noun} blocked by output moderation`, "error");
           }
           return updated;
         });
@@ -206,15 +212,16 @@ export function App() {
 
   const refreshBatchQueueJobs = useCallback(async (batchId: string) => {
     try {
-      const [queueRes, procRes] = await Promise.all([
+      const [queueRes, procRes, failedRes] = await Promise.all([
         listJobs({ batch_id: batchId, status: "pending", page_size: 50 }),
         listJobs({ batch_id: batchId, status: "processing", page_size: 50 }),
+        listJobs({ batch_id: batchId, status: "failed", page_size: 50 }),
       ]);
 
       setTrackedBatches((prev) =>
         prev.map((batch) =>
           batch.progress.batch_id === batchId
-            ? { ...batch, queueJobs: [...procRes.jobs, ...queueRes.jobs] }
+            ? { ...batch, queueJobs: [...procRes.jobs, ...queueRes.jobs, ...failedRes.jobs] }
             : batch
         )
       );
