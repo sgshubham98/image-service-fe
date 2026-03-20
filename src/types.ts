@@ -65,6 +65,7 @@ export interface BatchProgress {
   total: number;
   completed: number;
   failed: number;
+  unsafe: number;
   cancelled: number;
   pending: number;
   status: string;

@@ -170,12 +170,20 @@ export function App() {
     const stop = streamBatchProgress(batchId, {
       onProgress: (progress) => {
         setTrackedBatches((prev) => {
+          const previous = prev.find((b) => b.progress.batch_id === batchId);
+          const prevUnsafe = previous?.progress.unsafe ?? 0;
           const base = prev.some((b) => b.progress.batch_id === batchId)
             ? prev.map((batch) =>
                 batch.progress.batch_id === batchId ? { ...batch, progress } : batch
               )
             : [{ progress, queueJobs: [], events: [] }, ...prev];
-          return appendEvent(base, batchId, `Progress ${progress.completed}/${progress.total}`);
+          let updated = appendEvent(base, batchId, `Progress ${progress.completed}/${progress.total}`);
+          if (progress.unsafe > prevUnsafe) {
+            const delta = progress.unsafe - prevUnsafe;
+            const noun = delta === 1 ? "prompt" : "prompts";
+            updated = appendEvent(updated, batchId, `${delta} ${noun} flagged unsafe`, "error");
+          }
+          return updated;
         });
       },
       onDone: (progress) => {
