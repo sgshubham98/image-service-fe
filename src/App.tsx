@@ -687,11 +687,7 @@ export function App() {
 
       <header className={`theme-animate fixed top-0 left-0 right-0 z-50 h-[73px] flex items-center justify-between px-6 py-4 border-b backdrop-blur ${headerClass}`}>
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-900/40">
-            <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-            </svg>
-          </div>
+          <img src="/service-icon.png" alt="Service Icon" width={32} height={32} className="h-8 w-8 rounded-xl shadow-lg shadow-violet-900/40" />
           <div>
             <h1 className="text-base font-semibold tracking-tight">Imagify</h1>
             <p className="text-xs opacity-60">Craft stunning visuals with AI</p>
